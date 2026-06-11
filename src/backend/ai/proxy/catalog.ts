@@ -88,8 +88,8 @@ let modelCache:
  * Authenticate a proxy request using any supported API-key transport.
  *
  * Supported inputs:
- * - `Authorization: ******
- * - `cf-aig-authorization: ******
+ * - Authorization bearer header
+ * - `cf-aig-authorization` bearer header
  * - `x-api-key`, `api-key`, or `apikey`
  * - `?api_key=<token>` or `?key=<token>`
  *
@@ -195,22 +195,6 @@ export function normalizeGatewayModel(model: string): string {
 }
 
 /**
- * Convert a workers-ai gateway model back into the raw Workers AI model id.
- *
- * @param model - Normalized gateway model id
- * @returns Raw Workers AI model id when the model is Workers AI based
- *
- * @example
- * ```typescript
- * toWorkersAiModelId("workers-ai/@cf/openai/gpt-oss-120b");
- * // => "@cf/openai/gpt-oss-120b"
- * ```
- */
-export function toWorkersAiModelId(model: string): string {
-  return model.startsWith("workers-ai/") ? model.slice("workers-ai/".length) : model;
-}
-
-/**
  * Build the AI Gateway OpenAI-compat upstream URL for a given request path.
  *
  * @param auth - Validated gateway auth configuration
@@ -244,10 +228,14 @@ export async function listWorkersAiCatalogModels(): Promise<WorkersAiCatalogMode
   }
 
   const files = await fetchJson<GitHubDirectoryEntry[]>(WORKERS_AI_DIRECTORY_URL);
+  const downloadableFiles = files.filter(
+    (file): file is GitHubDirectoryEntry & { download_url: string } =>
+      file.type === "file" && typeof file.download_url === "string",
+  );
   const models = await Promise.all(
-    files
-      .filter((file) => file.type === "file" && typeof file.download_url === "string")
-      .map(async (file) => normalizeWorkersAiCatalogModel(await fetchJson<WorkersAiModelDoc>(file.download_url!))),
+    downloadableFiles.map(async (file) =>
+      normalizeWorkersAiCatalogModel(await fetchJson<WorkersAiModelDoc>(file.download_url)),
+    ),
   );
 
   models.sort((left, right) => {
@@ -314,7 +302,7 @@ function readNumericProperty(properties: WorkersAiProperty[], id: string): numbe
     return undefined;
   }
 
-  const parsed = Number.parseInt(value, 10);
+  const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 

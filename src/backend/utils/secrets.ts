@@ -71,7 +71,12 @@ export async function getCloudflareAiGatewayToken(env: Env): Promise<string | un
       : await legacyGatewayToken.get();
   }
 
-  return (await getSecret(env, "CLOUDFLARE_AI_GATEWAY_TOKEN")) ?? (await getSecret(env, "AI_GATEWAY_TOKEN"));
+  const primaryGatewayToken = await getSecret(env, "CLOUDFLARE_AI_GATEWAY_TOKEN");
+  if (primaryGatewayToken) {
+    return primaryGatewayToken;
+  }
+
+  return await getSecret(env, "AI_GATEWAY_TOKEN");
 }
 
 /**

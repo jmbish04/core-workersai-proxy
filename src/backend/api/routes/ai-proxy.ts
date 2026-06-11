@@ -76,6 +76,7 @@ const ollamaChatRequestSchema = z
     model: z.string().min(1),
     messages: z.array(z.record(z.string(), z.unknown())),
     stream: z.boolean().optional(),
+    // Ollama supports either the string literal "json" or a schema-like object.
     format: z.union([z.literal("json"), z.record(z.string(), z.unknown())]).optional(),
     options: z.record(z.string(), z.unknown()).optional(),
   })
@@ -217,7 +218,9 @@ aiProxyRouter.post("/v1/audio/transcriptions", async (c) => {
 
     const body = new FormData();
     for (const [key, value] of input.entries()) {
-      body.append(key, key === "model" && typeof value === "string" ? normalizeGatewayModel(value) : value);
+      const normalizedValue =
+        key === "model" && typeof value === "string" ? normalizeGatewayModel(value) : value;
+      body.append(key, normalizedValue);
     }
 
     const upstream = await fetch(buildGatewayCompatUrl(auth, "/audio/transcriptions"), {
@@ -263,7 +266,10 @@ aiProxyRouter.post("/api/show", async (c) => {
   try {
     await authenticateProxyRequest(c.req.raw, c.env);
     const request = ollamaShowRequestSchema.parse(await c.req.json());
-    const name = request.name ?? request.model!;
+    const name = request.name ?? request.model;
+    if (!name) {
+      return ollamaError("Model is required", 400);
+    }
     const models = await listWorkersAiCatalogModels();
     const match = models.find((model) => model.id === name || model.normalizedId === name);
 
@@ -469,7 +475,10 @@ async function proxyOllamaEmbeddings(c: ProxyContext) {
   try {
     const auth = await authenticateProxyRequest(c.req.raw, c.env);
     const request = ollamaEmbedRequestSchema.parse(await c.req.json());
-    const input = request.input ?? request.prompt!;
+    const input = request.input ?? request.prompt;
+    if (input === undefined) {
+      return ollamaError("Input is required", 400);
+    }
     const upstream = await fetch(buildGatewayCompatUrl(auth, "/embeddings"), {
       method: "POST",
       headers: createUpstreamHeaders(c.req.raw.headers, auth.gatewayToken),
@@ -647,12 +656,10 @@ function transformOpenAiSseToNdjson(
   return new ReadableStream({
     async start(controller) {
       const reader = stream.getReader();
+      let chunk = await reader.read();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
+      while (!chunk.done) {
+        buffer += decoder.decode(chunk.value, { stream: true });
         const events = buffer.split("\n\n");
         buffer = events.pop() ?? "";
 
@@ -674,6 +681,8 @@ function transformOpenAiSseToNdjson(
             }
           }
         }
+
+        chunk = await reader.read();
       }
 
       controller.enqueue(encoder.encode(`${JSON.stringify(finalLine)}\n`));
