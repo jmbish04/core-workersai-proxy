@@ -56,6 +56,10 @@ no mock data.
   notifications,dashboard}` — CRUD + `?q=` search + filters + pagination. The
   dashboard exposes `/stats`, `/charts`, `/insights` (Workers AI via
   `ai/providers/ai-sdk.ts#getChatModel`).
+- **AI proxy**: `/v1/{models,chat/completions,completions,embeddings,responses,
+  audio/transcriptions}` and Ollama-compatible `/api/{tags,show,chat,generate,
+  embed,embeddings}` authenticate with `CLOUDFLARE_AI_GATEWAY_TOKEN`, normalize
+  model names for AI Gateway, and route through the `coding-agents` gateway.
 - **Realtime**: the `NotificationsAgent` Durable Object (`NOTIFICATIONS_AGENT`,
   instance `"global"`) syncs notification state over WebSocket. The client island
   is `components/NotificationsFeed.tsx` (`useAgent` + `onStateUpdate`); REST

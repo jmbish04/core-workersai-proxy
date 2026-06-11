@@ -56,6 +56,29 @@ export async function getCloudflareAccountId(env: Env): Promise<string | undefin
   return getSecret(env, "CLOUDFLARE_ACCOUNT_ID");
 }
 
+/** Fetch the AI Gateway token used for gateway auth and proxy auth. */
+export async function getCloudflareAiGatewayToken(env: Env): Promise<string | undefined> {
+  if ("CLOUDFLARE_AI_GATEWAY_TOKEN" in env && env.CLOUDFLARE_AI_GATEWAY_TOKEN) {
+    return typeof env.CLOUDFLARE_AI_GATEWAY_TOKEN === "string"
+      ? env.CLOUDFLARE_AI_GATEWAY_TOKEN
+      : await (env.CLOUDFLARE_AI_GATEWAY_TOKEN as any).get();
+  }
+
+  const legacyGatewayToken = (env as Record<string, any>).AI_GATEWAY_TOKEN;
+  if (legacyGatewayToken) {
+    return typeof legacyGatewayToken === "string"
+      ? legacyGatewayToken
+      : await legacyGatewayToken.get();
+  }
+
+  const primaryGatewayToken = await getSecret(env, "CLOUDFLARE_AI_GATEWAY_TOKEN");
+  if (primaryGatewayToken) {
+    return primaryGatewayToken;
+  }
+
+  return await getSecret(env, "AI_GATEWAY_TOKEN");
+}
+
 /**
  * HMAC key used to sign the session cookie.
  *

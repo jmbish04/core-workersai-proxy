@@ -23,6 +23,7 @@ import { logger } from "hono/logger";
 import { authMiddleware } from "./middleware/auth";
 import { errorHandler } from "./middleware/error";
 import { authRouter } from "./routes/auth";
+import { aiProxyRouter } from "./routes/ai-proxy";
 import { clientErrorRouter } from "./routes/client-error";
 import { adminRouter, configRouter } from "./routes/config";
 import { docsRouter } from "./routes/docs";
@@ -126,6 +127,7 @@ app.route("/api/dashboard", dashboardRouter);
 app.route("/api/seed", seedRouter);
 
 app.route("/api/__client-error", clientErrorRouter);
+app.route("/", aiProxyRouter);
 
 // ---------------------------------------------------------------------------
 // OpenAPI documentation endpoints
