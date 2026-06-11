@@ -1,5 +1,5 @@
 {
-  "name": "core-template-cfw-assets-astro-shadcn",
+  "name": "core-workersai-proxy",
   "main": "dist/_worker.js/index.js",
   "compatibility_date": "2026-05-25",
   "compatibility_flags": ["nodejs_compat"],
@@ -104,7 +104,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "core-template-cfw-assets-astro-shadcn",
+      "database_name": "core-workersai-proxy",
       "database_id": "d555f8ce-77c9-4c82-be80-de95b8d9c003",
       "migrations_dir": "drizzle",
     },
@@ -151,22 +151,22 @@
       "secret_name": "GOOGLE_CREDS_SA_CLIENT_EMAIL",
     },
   ],
-  //  wrangler vectorize create core-template-cfw-assets-astro-shadcn-career-memory --preset @cf/baai/bge-large-en-v1.5
+  //  wrangler vectorize create core-workersai-proxy-career-memory --preset @cf/baai/bge-large-en-v1.5
   "vectorize": [
     {
       "binding": "VECTORIZE_CAREER_MEMORY",
-      "index_name": "core-template-cfw-assets-astro-shadcn-career-memory",
+      "index_name": "core-workersai-proxy-career-memory",
       "remote": true,
     },
   ],
   "r2_buckets": [
     {
       "binding": "R2_AUDIO_BUCKET",
-      "bucket_name": "core-template-cfw-assets-astro-shadcn-audio",
+      "bucket_name": "core-workersai-proxy-audio",
       "remote": true,
     },
     {
-      "bucket_name": "core-template-cfw-assets-astro-shadcn-files",
+      "bucket_name": "core-workersai-proxy-files",
       "binding": "R2_FILES_BUCKET",
       "remote": true,
     },
