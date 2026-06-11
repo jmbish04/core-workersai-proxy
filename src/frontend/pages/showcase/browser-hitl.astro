@@ -1,0 +1,408 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+---
+
+<BaseLayout title="Browser HITL Workspace" description="Agentic browsing with human-in-the-loop approval">
+  <div class="container mx-auto px-4 py-12 max-w-7xl">
+
+    <!-- Header -->
+    <section class="mb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="text-5xl">🕵️</span>
+        <div>
+          <h1 class="text-4xl font-bold tracking-tight">Browser HITL Workspace</h1>
+          <p class="text-muted-foreground mt-2">Playwright CDP with Human-in-the-Loop approval workflows</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Overview -->
+    <section class="mb-12">
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardHeader>
+          <CardTitle>Showcase Overview</CardTitle>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <p class="text-sm text-muted-foreground">
+            Browser HITL demonstrates a dedicated message bubble using a tailored variant of the <code class="text-orange-400">ToolFallback</code> interface component displaying an amber-styled warning action panel supporting execution confirmation actions.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <Badge className="bg-amber-950 text-amber-400 border-amber-800">Human-in-the-Loop</Badge>
+            <Badge className="bg-blue-950 text-blue-400 border-blue-800">Browser Rendering</Badge>
+            <Badge className="bg-purple-950 text-purple-400 border-purple-800">Playwright CDP</Badge>
+            <Badge className="bg-green-950 text-green-400 border-green-800">ToolFallback</Badge>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Architecture -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Architecture Flow</h2>
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardContent class="p-8">
+          <div class="flex flex-col gap-4">
+            <div class="flex items-center gap-4">
+              <div class="flex-1 p-4 bg-blue-950/30 border border-blue-600 rounded-lg">
+                <p class="font-semibold text-blue-400">Agent Intent</p>
+                <p class="text-xs text-muted-foreground mt-1">Identifies need for browser action</p>
+              </div>
+              <span class="text-2xl text-muted-foreground">→</span>
+              <div class="flex-1 p-4 bg-amber-950/30 border border-amber-600 rounded-lg">
+                <p class="font-semibold text-amber-400">HITL Approval UI</p>
+                <p class="text-xs text-muted-foreground mt-1">ToolFallback renders approval panel</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="flex-1 p-4 bg-purple-950/30 border border-purple-600 rounded-lg">
+                <p class="font-semibold text-purple-400">User Approval</p>
+                <p class="text-xs text-muted-foreground mt-1">Confirm or reject action</p>
+              </div>
+              <span class="text-2xl text-muted-foreground">→</span>
+              <div class="flex-1 p-4 bg-green-950/30 border border-green-600 rounded-lg">
+                <p class="font-semibold text-green-400">Browser Execution</p>
+                <p class="text-xs text-muted-foreground mt-1">Playwright performs action</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Implementation -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Implementation Reference</h2>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Backend -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base">Backend: BrowserHitlAgent.ts</CardTitle>
+              <Badge variant="secondary">Agent SDK</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto max-h-96"><code class="text-zinc-300">{`import { AIChatAgent } from "@cloudflare/ai-chat";
+import { streamText } from "ai";
+import { z } from "zod";
+
+export class BrowserHitlAgent extends AIChatAgent {
+  async onChatMessage() {
+    const result = await streamText({
+      model: this.env.AI,
+      prompt: this.messages[this.messages.length - 1].content,
+      tools: {
+        fillSecureForm: {
+          description: "Enters payment details or triggers high-value API operations",
+          parameters: z.object({
+            url: z.string().describe("Target URL"),
+            selector: z.string().describe("CSS selector"),
+            payload: z.any().describe("Form data")
+          }),
+          // Critical: Triggers human approval UI
+          needsApproval: true,
+          execute: async ({ url, selector, payload }) => {
+            // Launch browser via Cloudflare Browser Rendering
+            const browser = await this.env.MYBROWSER.launch();
+            const page = await browser.newPage();
+
+            try {
+              await page.goto(url);
+              await page.fill(selector, payload.data);
+              await page.click('button[type="submit"]');
+
+              // Wait for navigation
+              await page.waitForNavigation();
+
+              return {
+                status: "success",
+                url: page.url(),
+                title: await page.title()
+              };
+            } finally {
+              await browser.close();
+            }
+          }
+        },
+        clickElement: {
+          description: "Clicks an element on a webpage",
+          parameters: z.object({
+            url: z.string(),
+            selector: z.string()
+          }),
+          needsApproval: true,
+          execute: async ({ url, selector }) => {
+            const browser = await this.env.MYBROWSER.launch();
+            const page = await browser.newPage();
+
+            try {
+              await page.goto(url);
+              await page.click(selector);
+
+              return {
+                status: "success",
+                message: \`Clicked element: \${selector}\`
+              };
+            } finally {
+              await browser.close();
+            }
+          }
+        }
+      }
+    });
+
+    return result.toUIMessageStreamResponse();
+  }
+}`}</code></pre>
+          </CardContent>
+        </Card>
+
+        <!-- Frontend -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base">Frontend: BrowserHitlInterface.tsx</CardTitle>
+              <Badge variant="secondary">assistant-ui</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto max-h-96"><code class="text-zinc-300">{`import { useAgent } from "agents/react";
+import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { Thread, ToolFallback } from "@assistant-ui/react";
+
+export function BrowserHitlInterface() {
+  const agent = useAgent({
+    agent: "BrowserHitlAgent",
+    name: "browser-session"
+  });
+
+  const { messages } = useAgentChat({ agent });
+
+  return (
+    <div className="h-screen flex flex-col bg-zinc-950">
+      <div className="p-4 border-b border-zinc-800">
+        <h2 className="font-bold text-lg">Browser Agent</h2>
+        <p className="text-xs text-muted-foreground">
+          Human-in-the-loop browser automation
+        </p>
+      </div>
+
+      <Thread runtime={agent} className="flex-1 overflow-auto p-4">
+        {/* HITL Approval UI for fillSecureForm */}
+        <ToolFallback
+          toolName="fillSecureForm"
+          render={({ args, confirm, reject }) => (
+            <div className="border-2 border-amber-500 bg-amber-950/20 p-4 rounded-lg flex flex-col gap-3">
+              <div>
+                <h4 className="text-amber-500 font-bold text-sm flex items-center gap-1.5">
+                  ⚠️ Human Approval Required
+                </h4>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Agent wishes to perform browsing on{" "}
+                  <strong className="text-white">{args.url}</strong>
+                </p>
+              </div>
+
+              {/* Action Details */}
+              <div className="bg-zinc-900 p-3 rounded border border-zinc-800">
+                <p className="text-xs font-semibold text-zinc-400 mb-1">
+                  Action Details:
+                </p>
+                <pre className="text-xs text-zinc-300">
+                  {JSON.stringify(args, null, 2)}
+                </pre>
+              </div>
+
+              {/* Approval Buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={confirm}
+                  className="flex-1 bg-amber-600 hover:bg-amber-500 text-black px-4 py-2 rounded text-xs font-bold transition-colors"
+                >
+                  Approve Execution
+                </button>
+                <button
+                  onClick={reject}
+                  className="flex-1 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 px-4 py-2 rounded text-xs font-semibold transition-colors"
+                >
+                  Deny
+                </button>
+              </div>
+            </div>
+          )}
+        />
+
+        {/* HITL Approval UI for clickElement */}
+        <ToolFallback
+          toolName="clickElement"
+          render={({ args, confirm, reject }) => (
+            <div className="border-2 border-amber-500 bg-amber-950/20 p-4 rounded-lg flex flex-col gap-3">
+              <div>
+                <h4 className="text-amber-500 font-bold text-sm flex items-center gap-1.5">
+                  ⚠️ Click Approval Required
+                </h4>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Agent wants to click element on{" "}
+                  <strong className="text-white">{args.url}</strong>
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Selector: <code className="text-amber-400">{args.selector}</code>
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={confirm} className="flex-1 bg-amber-600 hover:bg-amber-500 text-black px-4 py-2 rounded text-xs font-bold transition-colors">
+                  Approve
+                </button>
+                <button onClick={reject} className="flex-1 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 px-4 py-2 rounded text-xs font-semibold transition-colors">
+                  Deny
+                </button>
+              </div>
+            </div>
+          )}
+        />
+      </Thread>
+    </div>
+  );
+}`}</code></pre>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Configuration -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Wrangler Configuration</h2>
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardContent class="p-6">
+          <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto"><code class="text-zinc-300">{`{
+  "name": "browser-hitl-showcase",
+  "main": "dist/_worker.js/index.js",
+  "compatibility_date": "2026-05-25",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_HITL_AGENT",
+        "class_name": "BrowserHitlAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BrowserHitlAgent"]
+    }
+  ],
+  "browser": {
+    "binding": "MYBROWSER"
+  },
+  "ai": {
+    "binding": "AI"
+  }
+}`}</code></pre>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Key Features -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Key Features</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">⚠️</span> needsApproval Pattern
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Tools marked with <code class="text-amber-400">needsApproval: true</code> automatically trigger the <code class="text-amber-400">ToolFallback</code> UI component, requiring explicit user confirmation before execution.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">🌐</span> Browser Rendering API
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Cloudflare Browser Rendering provides Playwright-compatible CDP access to headless Chromium instances running on the edge with Puppeteer and Playwright support.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">🎨</span> Custom Approval UI
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              The amber-styled warning panel with <code class="text-purple-400">confirm()</code> and <code class="text-purple-400">reject()</code> callbacks provides a clear visual distinction for sensitive operations.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">🔒</span> Security by Design
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Human-in-the-loop prevents automated agents from performing destructive or high-value operations without explicit user consent, maintaining security while enabling automation.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Use Cases -->
+    <section>
+      <h2 class="text-2xl font-bold mb-6">Real-World Use Cases</h2>
+      <div class="space-y-4">
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Automated Testing with Oversight</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              AI agent generates and executes browser tests, but requires human approval before submitting forms or clicking "purchase" buttons on production environments.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Web Scraping with Consent</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Agent navigates sites and extracts data, requesting approval before clicking through CAPTCHA, login forms, or terms of service acceptance.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Financial Transaction Automation</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Agent fills out payment details or transfer forms, but requires explicit human confirmation before final submission to prevent unauthorized transactions.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+  </div>
+</BaseLayout>

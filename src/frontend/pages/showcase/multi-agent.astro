@@ -1,0 +1,446 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+---
+
+<BaseLayout title="Multi-Agent Orchestration" description="Thread list WebSocket switching and collaborative agent workflows">
+  <div class="container mx-auto px-4 py-12 max-w-7xl">
+
+    <!-- Header -->
+    <section class="mb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="text-5xl">🧠</span>
+        <div>
+          <h1 class="text-4xl font-bold tracking-tight">Multi-Agent Orchestration</h1>
+          <p class="text-muted-foreground mt-2">Thread list WebSocket switching with Durable Object Facets</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Overview -->
+    <section class="mb-12">
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardHeader>
+          <CardTitle>Showcase Overview</CardTitle>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <p class="text-sm text-muted-foreground">
+            Multi-Agent Orchestration demonstrates a sidebar layout list displaying available subagent actors (<code class="text-orange-400">ResearcherAgent</code>, <code class="text-orange-400">CoderAgent</code>) that switches active <code class="text-orange-400">useAgentChat</code> targets instantly when triggered.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <Badge className="bg-purple-950 text-purple-400 border-purple-800">Multi-Agent</Badge>
+            <Badge className="bg-blue-950 text-blue-400 border-blue-800">Orchestration</Badge>
+            <Badge className="bg-orange-950 text-orange-400 border-orange-800">DO Facets</Badge>
+            <Badge className="bg-green-950 text-green-400 border-green-800">ThreadList</Badge>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Architecture -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Architecture Flow</h2>
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardContent class="p-8">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="p-4 bg-purple-950/30 border border-purple-600 rounded-lg text-center">
+              <p class="font-semibold text-purple-400 mb-2">Orchestrator Agent</p>
+              <p class="text-xs text-muted-foreground">Coordinates child agents via DO Facets</p>
+            </div>
+            <div class="p-4 bg-blue-950/30 border border-blue-600 rounded-lg text-center">
+              <p class="font-semibold text-blue-400 mb-2">Researcher Subagent</p>
+              <p class="text-xs text-muted-foreground">Handles research and data gathering</p>
+            </div>
+            <div class="p-4 bg-green-950/30 border border-green-600 rounded-lg text-center">
+              <p class="font-semibold text-green-400 mb-2">Coder Subagent</p>
+              <p class="text-xs text-muted-foreground">Handles code generation and editing</p>
+            </div>
+          </div>
+          <div class="mt-4 p-4 bg-zinc-900 rounded-lg border border-zinc-800">
+            <p class="text-xs text-muted-foreground">
+              <strong class="text-white">Key Concept:</strong> Each subagent is its own Durable Object instance with isolated SQLite storage. The frontend seamlessly switches WebSocket connections between agents without losing conversation history.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Implementation -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Implementation Reference</h2>
+
+      <div class="grid grid-cols-1 gap-6">
+        <!-- Backend Orchestrator -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base">Backend: OrchestratorAgent.ts</CardTitle>
+              <Badge variant="secondary">Agent SDK</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto"><code class="text-zinc-300">{`import { Agent } from "agents";
+
+export class OrchestratorAgent extends Agent {
+  async onConnect(connection) {
+    // Coordinate child subagents via Durable Object Facets
+    const userId = connection.userId;
+
+    // Spawn or retrieve child agents
+    const researcherId = this.env.RESEARCHER_AGENT.idFromName(userId);
+    const coderId = this.env.CODER_AGENT.idFromName(userId);
+
+    // Broadcast active workspaces to the parent thread list
+    this.setState({
+      activeSubagents: [
+        {
+          id: "researcher",
+          role: "Researcher",
+          url: \`/agents/researcher/\${userId}\`,
+          description: "Data gathering and analysis"
+        },
+        {
+          id: "coder",
+          role: "Developer",
+          url: \`/agents/coder/\${userId}\`,
+          description: "Code generation and editing"
+        }
+      ]
+    });
+  }
+
+  @callable()
+  async getSubagentStatus() {
+    return {
+      researcher: await this.getAgentStatus("researcher"),
+      coder: await this.getAgentStatus("coder")
+    };
+  }
+
+  private async getAgentStatus(agentType: string) {
+    // Query subagent for status
+    return { active: true, messageCount: 0 };
+  }
+}`}</code></pre>
+          </CardContent>
+        </Card>
+
+        <!-- Backend Subagents -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card class="border-zinc-800 bg-zinc-950">
+            <CardHeader>
+              <CardTitle class="text-base">ResearcherAgent.ts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto max-h-64"><code class="text-zinc-300">{`import { AIChatAgent } from "@cloudflare/ai-chat";
+import { streamText } from "ai";
+
+export class ResearcherAgent extends AIChatAgent {
+  async onChatMessage() {
+    const result = await streamText({
+      model: this.env.AI,
+      system: "You are a research specialist focused on data gathering and analysis.",
+      messages: this.messages,
+      tools: {
+        searchWeb: {
+          description: "Search the web for information",
+          parameters: z.object({
+            query: z.string()
+          }),
+          execute: async ({ query }) => {
+            // Search implementation
+            return { results: [] };
+          }
+        }
+      }
+    });
+
+    return result.toUIMessageStreamResponse();
+  }
+}`}</code></pre>
+            </CardContent>
+          </Card>
+
+          <Card class="border-zinc-800 bg-zinc-950">
+            <CardHeader>
+              <CardTitle class="text-base">CoderAgent.ts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto max-h-64"><code class="text-zinc-300">{`import { AIChatAgent } from "@cloudflare/ai-chat";
+import { streamText } from "ai";
+
+export class CoderAgent extends AIChatAgent {
+  async onChatMessage() {
+    const result = await streamText({
+      model: this.env.AI,
+      system: "You are a coding specialist focused on writing and editing code.",
+      messages: this.messages,
+      tools: {
+        executeCode: {
+          description: "Execute code in a sandbox",
+          parameters: z.object({
+            code: z.string()
+          }),
+          execute: async ({ code }) => {
+            // Code execution implementation
+            return { output: "" };
+          }
+        }
+      }
+    });
+
+    return result.toUIMessageStreamResponse();
+  }
+}`}</code></pre>
+            </CardContent>
+          </Card>
+        </div>
+
+        <!-- Frontend -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base">Frontend: UnifiedWorkspace.tsx</CardTitle>
+              <Badge variant="secondary">assistant-ui</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto"><code class="text-zinc-300">{`import { useState } from "react";
+import { useAgent } from "agents/react";
+import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { Thread } from "@assistant-ui/react";
+
+export function UnifiedWorkspace() {
+  const [activeAgent, setActiveAgent] = useState<"researcher" | "coder">("researcher");
+
+  // Directly swap the active WebSocket routing target
+  const agent = useAgent({
+    agent: activeAgent === "researcher" ? "ResearcherAgent" : "CoderAgent",
+    name: "workspace-session-id"
+  });
+
+  const chat = useAgentChat({ agent });
+
+  return (
+    <div className="flex h-screen bg-zinc-950">
+      {/* Sidebar with Workspace Switcher */}
+      <div className="w-64 border-r border-zinc-800 p-4 flex flex-col">
+        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+          Workspaces
+        </h3>
+
+        <div className="space-y-2 flex-1">
+          <button
+            onClick={() => setActiveAgent("researcher")}
+            className={\`w-full text-left p-3 rounded-lg text-sm transition-colors \${
+              activeAgent === "researcher"
+                ? "bg-orange-950/30 text-orange-400 border border-orange-600"
+                : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+            }\`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🔍</span>
+              <div>
+                <div className="font-semibold">Research Workspace</div>
+                <div className="text-xs text-muted-foreground">
+                  Data gathering & analysis
+                </div>
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveAgent("coder")}
+            className={\`w-full text-left p-3 rounded-lg text-sm transition-colors \${
+              activeAgent === "coder"
+                ? "bg-orange-950/30 text-orange-400 border border-orange-600"
+                : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+            }\`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">💻</span>
+              <div>
+                <div className="font-semibold">Coding Workspace</div>
+                <div className="text-xs text-muted-foreground">
+                  Code generation & editing
+                </div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {/* Status Indicator */}
+        <div className="pt-4 border-t border-zinc-800">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span>Connected to {activeAgent}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        <div className="p-4 border-b border-zinc-800">
+          <h2 className="font-bold text-lg">
+            {activeAgent === "researcher" ? "🔍 Research Agent" : "💻 Coder Agent"}
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            {activeAgent === "researcher"
+              ? "Ask questions and gather information"
+              : "Generate and edit code"}
+          </p>
+        </div>
+
+        <Thread runtime={chat} className="flex-1 overflow-auto" />
+      </div>
+    </div>
+  );
+}`}</code></pre>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Configuration -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Wrangler Configuration</h2>
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardContent class="p-6">
+          <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto"><code class="text-zinc-300">{`{
+  "name": "multi-agent-showcase",
+  "main": "dist/_worker.js/index.js",
+  "compatibility_date": "2026-05-25",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ORCHESTRATOR_AGENT",
+        "class_name": "OrchestratorAgent"
+      },
+      {
+        "name": "RESEARCHER_AGENT",
+        "class_name": "ResearcherAgent"
+      },
+      {
+        "name": "CODER_AGENT",
+        "class_name": "CoderAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "OrchestratorAgent",
+        "ResearcherAgent",
+        "CoderAgent"
+      ]
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  }
+}`}</code></pre>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Key Features -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-6">Key Features</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">🔄</span> Instant Agent Switching
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              The frontend seamlessly switches WebSocket connections between different agent types without page reload. Each agent maintains its own conversation history in isolated SQLite storage.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">🗄️</span> Isolated State
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Each subagent is a separate Durable Object instance with its own embedded SQLite database (up to 10GB per agent). State is never shared between agents unless explicitly coordinated.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">⚡</span> Zero-Cost Hibernation
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              All agents consume zero compute when idle. When switching between agents, the previous agent hibernates while the new agent wakes instantly, providing millisecond-latency responses.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base flex items-center gap-2">
+              <span class="text-xl">🎯</span> Specialized Expertise
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Each agent can have specialized system prompts, tools, and models. The ResearcherAgent focuses on data gathering while the CoderAgent specializes in code generation.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Use Cases -->
+    <section>
+      <h2 class="text-2xl font-bold mb-6">Real-World Use Cases</h2>
+      <div class="space-y-4">
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Software Development Workflow</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Switch between ResearcherAgent for requirements gathering and API documentation, and CoderAgent for implementation. Each maintains separate conversation context and history.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Customer Support Platform</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Route users to specialized agents: TechnicalSupportAgent for troubleshooting, BillingAgent for payment issues, and GeneralInquiryAgent for other questions.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Content Creation Pipeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p class="text-sm text-muted-foreground">
+              Coordinate WriterAgent for drafting content, EditorAgent for revisions, and SEOAgent for optimization. Each agent focuses on its specialty while maintaining workflow continuity.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+  </div>
+</BaseLayout>

@@ -1,0 +1,410 @@
+---
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+---
+
+<BaseLayout title="Developer Playbook" description="Comprehensive guide to building with Cloudflare Agents SDK and assistant-ui">
+  <div class="container mx-auto px-4 py-12 max-w-7xl">
+
+    <!-- Hero Section -->
+    <section class="mb-16">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="text-5xl">📖</span>
+        <h1 class="text-4xl font-bold tracking-tight">Developer Playbook</h1>
+      </div>
+      <p class="text-xl text-muted-foreground max-w-3xl leading-relaxed">
+        This comprehensive, engineering-grade implementation guide bridges the <strong>Cloudflare Agents SDK</strong> and <strong>assistant-ui</strong>, serving as your production-ready blueprint for building stateful edge applications.
+      </p>
+    </section>
+
+    <!-- Core Architecture Pattern -->
+    <section class="mb-16">
+      <h2 class="text-2xl font-bold mb-8">Core Architecture Pattern</h2>
+
+      <Card class="border-zinc-800 bg-zinc-950 mb-8">
+        <CardHeader>
+          <CardTitle>The Agent-UI Integration Model</CardTitle>
+          <CardDescription>Understanding the connection between frontend and backend</CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <p class="text-sm text-muted-foreground">
+            The Cloudflare Agents SDK provides a WebSocket-based real-time connection layer between your frontend and Durable Object-backed agents. This architecture enables:
+          </p>
+          <ul class="list-disc list-inside space-y-2 text-sm text-muted-foreground pl-4">
+            <li><strong>Zero-cost hibernation:</strong> Agents consume no compute when idle, waking instantly on WebSocket messages</li>
+            <li><strong>Persistent state:</strong> Each agent instance has its own embedded SQLite database (up to 10GB)</li>
+            <li><strong>Real-time sync:</strong> State changes broadcast to all connected clients automatically</li>
+            <li><strong>Typed RPC:</strong> Call agent methods from the frontend with full type safety</li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Backend: Agent Class</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto"><code class="text-zinc-300">{`import { AIChatAgent } from "@cloudflare/ai-chat";
+import { createWorkersAI } from "workers-ai-provider";
+import { streamText } from "ai";
+
+export class ChatAgent extends AIChatAgent {
+  async onChatMessage() {
+    const workersai = createWorkersAI({
+      binding: this.env.AI
+    });
+
+    const result = streamText({
+      model: workersai("@cf/meta/llama-3.3-70b"),
+      messages: this.messages,
+    });
+
+    return result.toUIMessageStreamResponse();
+  }
+}`}</code></pre>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">Frontend: React Hook</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre class="text-xs bg-zinc-900 p-4 rounded-lg border border-zinc-800 overflow-x-auto"><code class="text-zinc-300">{`import { useAgent } from "agents/react";
+import { useAgentChat } from "@cloudflare/ai-chat/react";
+import { Thread } from "@assistant-ui/react";
+
+function Chat() {
+  const agent = useAgent({
+    agent: "ChatAgent",
+    name: "user-123"
+  });
+
+  const chat = useAgentChat({ agent });
+
+  return <Thread runtime={chat} />;
+}`}</code></pre>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Key Concepts -->
+    <section class="mb-16">
+      <h2 class="text-2xl font-bold mb-8">Key Integration Concepts</h2>
+
+      <div class="space-y-6">
+        <!-- useAgentChat Runtime -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center gap-2">
+              <Badge className="bg-orange-950 text-orange-400 border-orange-800">Hook</Badge>
+              <CardTitle class="text-lg">useAgentChat Runtime Context</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+              The <code class="text-orange-400">useAgentChat</code> hook provides a WebSocket-backed runtime that wraps the AI SDK's <code class="text-orange-400">useChat</code> with native Cloudflare transport:
+            </p>
+            <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+              <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`const {
+  messages,           // Current conversation history
+  sendMessage,        // Send a new message to the agent
+  setMessages,        // Update message list (syncs to server)
+  clearHistory,       // Clear all messages
+  isStreaming,        // True when any stream is active
+  isServerStreaming,  // True when server-initiated stream
+  status,             // AI SDK status: "ready" | "streaming" | "error"
+  addToolOutput,      // Manually provide tool result
+  addToolApprovalResponse // Approve/reject HITL tools
+} = useAgentChat({ agent });`}</code></pre>
+            </div>
+            <p class="text-sm text-muted-foreground">
+              This maps directly to WebSocket hibernation: the Durable Object spins down when quiet and wakes instantly on message, maintaining zero idle cost while providing millisecond-latency responses.
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- ToolFallback Pattern -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center gap-2">
+              <Badge className="bg-purple-950 text-purple-400 border-purple-800">Pattern</Badge>
+              <CardTitle class="text-lg">ToolFallback for Manual Intervention</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+              The <code class="text-purple-400">ToolFallback</code> component from assistant-ui intercepts tool calls that require human approval or custom UI rendering:
+            </p>
+            <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+              <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`<Thread runtime={runtime}>
+  <ToolFallback
+    toolName="executeCode"
+    render={({ args, confirm, reject }) => (
+      <div className="border border-amber-500 bg-amber-950/20 p-4 rounded">
+        <h4 className="text-amber-500 font-bold">Approve Execution?</h4>
+        <pre className="text-xs mt-2">{args.code}</pre>
+        <div className="flex gap-2 mt-4">
+          <button onClick={confirm}>Approve</button>
+          <button onClick={reject}>Deny</button>
+        </div>
+      </div>
+    )}
+  />
+</Thread>`}</code></pre>
+            </div>
+            <p class="text-sm text-muted-foreground">
+              On the backend, mark tools with <code class="text-purple-400">needsApproval: true</code> to trigger the fallback UI automatically.
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- Progressive State Sync -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center gap-2">
+              <Badge className="bg-blue-950 text-blue-400 border-blue-800">Pattern</Badge>
+              <CardTitle class="text-lg">Progressive State Synchronization</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+              Agents store conversation history in embedded SQLite and stream updates to connected clients:
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+                <p class="text-xs font-semibold text-zinc-400 mb-2">Backend (Agent)</p>
+                <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`// SQLite stores messages automatically
+async onChatMessage() {
+  // this.messages contains full history
+  // from embedded SQLite
+
+  const result = streamText({
+    model: this.env.AI,
+    messages: this.messages
+  });
+
+  // Streams broadcast to all clients
+  return result.toUIMessageStreamResponse();
+}`}</code></pre>
+              </div>
+              <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+                <p class="text-xs font-semibold text-zinc-400 mb-2">Frontend (React)</p>
+                <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`// Messages auto-sync from WebSocket
+const { messages, isStreaming } = useAgentChat({ agent });
+
+// Render streaming UI
+<Thread runtime={chat}>
+  {messages.map(msg => (
+    <Message key={msg.id} message={msg} />
+  ))}
+  {isStreaming && <LoadingIndicator />}
+</Thread>`}</code></pre>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <!-- Multi-Agent Orchestration -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center gap-2">
+              <Badge className="bg-green-950 text-green-400 border-green-800">Advanced</Badge>
+              <CardTitle class="text-lg">Multi-Agent Orchestration</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+              Orchestrator agents can spawn child Durable Object facets, allowing the UI to seamlessly switch between active agents:
+            </p>
+            <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+              <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`// Frontend: Switch between agent targets
+const [activeAgent, setActiveAgent] = useState("researcher");
+
+const chat = useAgentChat({
+  agent: activeAgent === "researcher" ? "ResearcherAgent" : "CoderAgent",
+  name: "workspace-session-id"
+});
+
+// UI instantly switches WebSocket connections
+<button onClick={() => setActiveAgent("researcher")}>
+  Research Workspace
+</button>
+<button onClick={() => setActiveAgent("coder")}>
+  Coding Workspace
+</button>`}</code></pre>
+            </div>
+          </CardContent>
+        </Card>
+
+        <!-- Workflows Progress Tracking -->
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <div class="flex items-center gap-2">
+              <Badge className="bg-yellow-950 text-yellow-400 border-yellow-800">Advanced</Badge>
+              <CardTitle class="text-lg">Workflows Progress Pipeline</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+              Dynamic Workflows emit progress events that can drive custom UI components:
+            </p>
+            <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+              <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`// Backend: Workflow reporting progress
+export class TranscriptionWorkflow extends AgentWorkflow {
+  async run(event, step) {
+    await step.do("transcribe", async () => {
+      await this.agent.reportProgress({
+        step: "transcribing",
+        percent: 25
+      });
+      return await this.env.AI.run("@cf/openai/whisper", {
+        audio: event.payload
+      });
+    });
+
+    await step.do("vectorize", async () => {
+      await this.agent.reportProgress({
+        step: "vectorizing",
+        percent: 75
+      });
+      await this.env.VECTORIZE.insert(transcription);
+    });
+  }
+}`}</code></pre>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Configuration Requirements -->
+    <section class="mb-16">
+      <h2 class="text-2xl font-bold mb-8">Configuration Requirements</h2>
+
+      <Card class="border-zinc-800 bg-zinc-950">
+        <CardHeader>
+          <CardTitle>Wrangler Configuration</CardTitle>
+          <CardDescription>Required bindings for agent-based applications</CardDescription>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <p class="text-sm text-muted-foreground">
+            Your <code class="text-orange-400">wrangler.jsonc</code> must declare Durable Object bindings for each agent class:
+          </p>
+          <div class="bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+            <pre class="text-xs overflow-x-auto"><code class="text-zinc-300">{`{
+  "name": "edge-agent-showcase",
+  "main": "dist/_worker.js/index.js",
+  "compatibility_date": "2026-05-25",
+  "durable_objects": {
+    "bindings": [
+      { "name": "CHAT_AGENT", "class_name": "ChatAgent" },
+      { "name": "CODE_MODE_AGENT", "class_name": "CodeModeAgent" },
+      { "name": "BROWSER_AGENT", "class_name": "BrowserAgent" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChatAgent", "CodeModeAgent", "BrowserAgent"]
+    }
+  ],
+  "worker_loaders": [
+    { "binding": "WORKER_LOADERS" }
+  ],
+  "ai": {
+    "binding": "AI"
+  }
+}`}</code></pre>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div class="p-3 bg-zinc-900 rounded border border-zinc-800">
+              <p class="text-xs font-semibold text-orange-400 mb-1">durable_objects</p>
+              <p class="text-xs text-muted-foreground">Binds agent classes to namespace</p>
+            </div>
+            <div class="p-3 bg-zinc-900 rounded border border-zinc-800">
+              <p class="text-xs font-semibold text-orange-400 mb-1">new_sqlite_classes</p>
+              <p class="text-xs text-muted-foreground">Enables embedded SQLite storage</p>
+            </div>
+            <div class="p-3 bg-zinc-900 rounded border border-zinc-800">
+              <p class="text-xs font-semibold text-orange-400 mb-1">worker_loaders</p>
+              <p class="text-xs text-muted-foreground">For Dynamic Workers (Code Mode)</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Best Practices -->
+    <section class="mb-16">
+      <h2 class="text-2xl font-bold mb-8">Best Practices</h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">✅ Do</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul class="space-y-2 text-sm text-muted-foreground">
+              <li>• Use SQLite-backed Durable Objects for all new agents</li>
+              <li>• Mark tools with <code class="text-orange-400">needsApproval: true</code> for sensitive operations</li>
+              <li>• Leverage <code class="text-orange-400">isStreaming</code> for unified loading states</li>
+              <li>• Store conversation history in embedded SQLite (automatic with AIChatAgent)</li>
+              <li>• Use WebSocket hibernation for zero idle cost</li>
+              <li>• Test agent reconnection logic (network drops, tab close/reopen)</li>
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card class="border-zinc-800 bg-zinc-950">
+          <CardHeader>
+            <CardTitle class="text-base">❌ Don't</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul class="space-y-2 text-sm text-muted-foreground">
+              <li>• Don't use the legacy key-value storage backend (use SQLite instead)</li>
+              <li>• Don't poll for status updates (use WebSocket state sync)</li>
+              <li>• Don't implement your own message persistence (AIChatAgent handles this)</li>
+              <li>• Don't expose agent endpoints publicly without authentication</li>
+              <li>• Don't store secrets in agent state (use env bindings)</li>
+              <li>• Don't create new agents per request (use agent name for routing)</li>
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
+    <!-- Next Steps -->
+    <section>
+      <Card class="border-orange-800 bg-gradient-to-r from-zinc-950 to-orange-950/20">
+        <CardContent class="p-12 text-center">
+          <h2 class="text-3xl font-bold mb-4">Ready to Build?</h2>
+          <p class="text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
+            Explore the showcase pages to see fully functional, fully typed frontend interfaces utilizing assistant-ui styling and Shadcn components
+          </p>
+          <div class="flex gap-4 justify-center flex-wrap">
+            <a href="/showcase/code-mode" class="inline-block px-6 py-3 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors">
+              Code Mode Canvas
+            </a>
+            <a href="/showcase/browser-hitl" class="inline-block px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-semibold transition-colors">
+              Browser HITL
+            </a>
+            <a href="/showcase/multi-agent" class="inline-block px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-semibold transition-colors">
+              Multi-Agent
+            </a>
+            <a href="/showcase/workflows" class="inline-block px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-semibold transition-colors">
+              Workflows
+            </a>
+            <a href="/showcase/artifacts" class="inline-block px-6 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-semibold transition-colors">
+              Artifacts
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+
+  </div>
+</BaseLayout>
