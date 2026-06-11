@@ -47,6 +47,7 @@ export {
 function isApiPath(pathname: string): boolean {
   return (
     pathname.startsWith("/api/") ||
+    pathname.startsWith("/v1/") ||
     pathname === "/openapi.json" ||
     pathname === "/swagger" ||
     pathname === "/scalar" ||
