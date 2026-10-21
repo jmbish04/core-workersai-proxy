@@ -168,11 +168,15 @@ runner, or another person's checkout cannot see them.** A repo that carries no
 copy is a repo where the rules silently do not apply — and "the agent did not
 have the briefing" reads identically to "the agent ignored the briefing".
 
-So every repo Justin works in gets a **sync Action**: on every merge to the
-default branch, on a weekly schedule, and on demand, it pulls the briefings this
-repo actually needs from `github.com/jmbish04/colby-ecosystem` into
-`.agents/ecosystem/` and commits them. Because they are committed, a plain
-`git clone` already has them.
+So every repo Justin works in gets a **sync Action**: on every pull request, and
+on demand, it pulls the briefings this repo actually needs from
+`github.com/jmbish04/colby-ecosystem` into `.agents/ecosystem/` and commits them
+**to the PR branch**. They reach the default branch inside a merge that was going
+to build anyway. Because they are committed, a plain `git clone` already has them.
+
+**Never add a `push` or `schedule` trigger back.** Those committed straight to
+`main` in every repo, so one change here became an Actions run and a Workers Build
+in every repo. Record: `decisions/2026-10-21-agents-sync-fanout.md`.
 
 **Right-sized is the point.** A Python repo gets `AGENTS.md` +
 `AGENTS-python.md`, not the 79KB Cloudflare chapter. The selection is derived from
@@ -559,6 +563,7 @@ query the control plane?". Just use them and report what you did.
 | **Cloudflare API MCP** (`mcp__cloudflare-api*`, the self-hosted proxy) | `search` / `execute` / `docs` and the Workers CI/CD tools — including **writes**: creating bindings, configuring builds, reading logs |
 | **Cloudflare docs search** | Read-only documentation lookup |
 | **Deploying a Cloudflare Worker** | See "Deploying" in `~/AGENTS-cloudflare-workers.md` — standing authorization, rollback is the safety net |
+| **Commenting on a pull request** | Any PR, yours or another session's, on any repo. Reversible, visible and attributable. Justin, 2026-10-17: "these agents NEVER need to ask permission to comment on PRs, ever". Merging, pushing, closing and reopening are NOT covered. |
 
 **If a permission prompt still appears for one of these, that is a configuration
 bug, not a signal to stop.** Two known causes, both worth reporting rather than

@@ -168,7 +168,8 @@ render_block() {
   printf 'Work is tracked in **colby-maestro** (`https://colby-maestro.hacolby.workers.dev/mcp`,\n'
   printf 'bearer `$(tokens show WORKER_API_KEY --value-only)`) — never in this repo and never\n'
   printf 'in colby-ecosystem, which only stores config. Refresh this block with\n'
-  printf '`%s/pull-agents`.\n' "$DEST_REL"
+  printf '`%s/pull-agents`.\n\n' "$DEST_REL"
+  printf 'Before a step these briefings do not plainly cover — a credential, a host, a database, a deploy, a backup — search **playbooks** on colby-maestro first, on a half-remembered fragment rather than a title, and say in the worklog what you found; write one when you had to work something out that nobody had written down (`%s/AGENTS.md`, "Write down what you worked out").\n' "$DEST_REL"
   printf '%s\n' "$END_MARK"
 }
 
