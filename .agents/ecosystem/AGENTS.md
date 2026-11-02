@@ -218,6 +218,17 @@ delimited managed block of pointers at the top. Everything outside that block is
 left byte-for-byte alone, so the effective briefing is **local `AGENTS.md` +
 colby-ecosystem's**, not one replacing the other.
 
+**These briefings are themselves generated — the rendered file is an artifact.**
+All 11 machine-wide targets, every `AGENTS*.md` above plus `~/.claude/CLAUDE.md`,
+are rendered from `generator/blocks/*.md` through `generator/generate.mjs` and
+`generator/targets.json` in colby-ecosystem. So a change to a briefing is a change
+to a **block**, and editing a rendered file fails the repo's own
+`briefings match their blocks` gate: `node generator/generate.mjs check` names the
+target `STALE` and CI goes red with no other failure. Measured twice —
+`decisions/2026-10-15-claude-pipeline-triage.md`, and again on 2026-11-02 in PR 128,
+that time by following `scripts/sync-agents`' premise that the home copy is the
+working copy. "End of session" below carries the loop to run.
+
 ## Installing it — `gh-tools agents-sync`
 
 Do this yourself; it is not a hand-off. One command, in the repo you are working in:
@@ -524,6 +535,15 @@ want.** `~/.colby-ecosystem/` is the local directory of sample code below.
 machine-wide `AGENTS*.md` briefings, the agent skills and the templates; it is
 cloned at `/Volumes/Projects/colby-ecosystem` and synced with `sync-agents`.
 Neither of them tracks work — that is colby-maestro.
+
+**The versioned copy is [`jmbish04/core-reuse-library`](https://github.com/jmbish04/core-reuse-library)
+(private, since 2026-10-21).** `~/.colby-ecosystem/` is on one Mac, outside
+any git repo, so a cloud session, a CI runner or another clone cannot see it.
+Its `workers/` and `python/` code was copied there, alongside `standards/` (one
+page per stack: Workers backend and frontend, Python, GAS) and `references/`
+(pinned links to core-guardian, core-bridge, core-pve and the two templates).
+Colby Maestro indexes it for `GET /api/reuse/search`. Prefer it when the session
+may not be on this Mac, and change shared code there, by PR.
 
 - `workers/` — `wrangler.jsonc` (full observability, **no `ai` binding**, Secret
   Store bindings, `run_worker_first`), `utils/secrets.ts`, `utils/ai.ts`,
@@ -1275,26 +1295,49 @@ Claude Code, cloud sessions, and Claude on iOS. The bearer token is the standard
 `WORKER_API_KEY` — the same credential every Worker in the ecosystem accepts (see
 "Secrets & credentials"); never mint a maestro-specific one.
 
-### Every door now reaches the Worker. Stop hunting for the "right" one.
+### The MCP is the door. The CLIs are not tracking doors.
 
-**Measured 2026-10-14, on this Mac.** All three of these write to the Worker, and
-there is no longer a local SQLite lane for an agent to fall into:
+**Which endpoint to call, in the order an agent walks it:
+`docs/maestro-endpoints.md` in colby-ecosystem.** It carries the lifecycle
+diagram and the 60 agent-facing paths grouped by job. Read it instead of
+rediscovering the catalog.
 
-| Door | Where it actually goes | Proof |
+Tasks, status, claims, worklogs, plans, artifacts and feedback are MCP calls.
+Measured 2026-11-01: `codemode.spec().info.title` answers `Colby Maestro API`
+with **314 paths**, the same count as the Worker's own `/openapi.json`.
+
+| Door | Where it goes | Use it for |
 |---|---|---|
-| `mcp__colby-maestro__*` (`search` / `execute`) | the Worker's `/mcp` | `~/.config/colby-mcp/servers.json` maps `colby-maestro` to `https://colby-maestro.hacolby.workers.dev/mcp` through `mcp-remote`; `codemode.spec().info.title` answers `Colby Maestro API` with **214 paths**, the same count as the Worker's own `/openapi.json` |
-| `colby-maestro` CLI (`~/.local/bin/colby-maestro`) | the Worker's REST API | `local_ai_orchestrator/shared/worker_api.py` sets `DEFAULT_WORKER_BASE_URL = https://colby-maestro.hacolby.workers.dev`; `colby-maestro tasks list --project-key colby-ecosystem --json` and `GET /api/tasks?project_key=colby-ecosystem` returned the same first task, field for field |
-| `maestro-task` (the plugin's CLI) | the Worker's REST API | `plugins/colby-maestro/lib/colby_maestro/http.py`, against `base_url()` |
+| `mcp__colby-maestro__*` (`search` / `execute`) | the Worker's `/mcp` — `~/.config/colby-mcp/servers.json` maps `colby-maestro` to `https://colby-maestro.hacolby.workers.dev/mcp` through `mcp-remote` | **everything an agent tracks** |
+| Plain HTTP, same paths + `Authorization: Bearer $(tokens show WORKER_API_KEY --value-only)` | the Worker | the one fallback, when no code-mode server answers `Colby Maestro API` |
+| `colby-maestro` CLI (`~/.local/bin/colby-maestro`) | the Worker's REST API (`DEFAULT_WORKER_BASE_URL` in `local_ai_orchestrator/shared/worker_api.py`) | the operator surface a human drives. Not an agent's tracking door |
+| `maestro-task` (the plugin's CLI) | the Worker's REST API, plus plugin-local state (`plugins/colby-maestro/lib/colby_maestro/http.py`) | plugin-local jobs with no Worker route: `upload-replay`, `ding classify`. Never status, worklog or linking |
 
-**This paragraph used to say the opposite, and that was the bug.** Until
-2026-10-14 this file told agents that `mcp__colby-maestro__*` and the
-`colby-maestro` CLI were "legacy" tools writing to a local SQLite mirror, and
-that the obvious-looking tool was "the wrong one". It had been true; Justin
-rewired both to the Worker and the warning stayed. The result was agents
-distrusting the correct tool, going looking for a client that was not installed,
-and reporting themselves blocked on a job the tool in their hand would have
-done. **A stale warning does more damage than no warning** — it does not merely
-fail to help, it actively sends work to the wrong place, or to nowhere.
+**To link a session to a task: name the task id in your next message.** The
+plugin's prompt hook reads it and links it. With no plugin,
+`POST /api/agents/heartbeat` with `session_key` and `task_id` does the same.
+There is no `/bind` route among the 314 paths; linking is per-session plugin
+state plus that heartbeat. The CLI's linking subcommand cannot run in a worktree
+at all — Claude Code's fence refuses any command carrying that word, which is
+also a shell builtin — and `~/AGENTS.md` mandates a worktree for every repo
+edit. "I could not find the client, so the work could not be recorded" is never
+the answer.
+
+**Telemetry is a different system.** Token usage, decisions and transcripts go
+to `agents.hacolby.app`, a FastAPI service on LXC 109 reached locally or over the
+Cloudflare tunnel. Not the Worker. The plugin's `TokenUsage` hook posts on Stop
+and SessionEnd; you never call it by hand.
+
+**Two earlier versions of this section were wrong, in opposite directions.**
+Until 2026-10-14 it called `mcp__colby-maestro__*` and the `colby-maestro` CLI
+"legacy" tools writing to a local SQLite mirror, long after Justin had rewired
+both to the Worker. Agents distrusted the correct tool and reported themselves
+blocked. Then it over-corrected into "every door reaches the Worker, pick the
+one in front of you", which read as permission to use a CLI for tracking — and
+this plugin's own hooks were naming `maestro-task` in every session's context,
+so that is what sessions did. Both failures were the file disagreeing with the
+instruction. **A stale warning does more damage than no warning:** it does not
+merely fail to help, it sends work to the wrong place.
 
 So: **measure against the machine, not against this file.** The probe is one
 call and it costs nothing:
@@ -1306,24 +1349,6 @@ async () => { const s = await codemode.spec(); return s.info.title; }
 
 If what you measure disagrees with what you read here, the measurement wins —
 and fixing this file is part of the job (see "End of session").
-
-### `maestro-task` is the plugin's CLI, and it is not always there
-
-`maestro-task` is on PATH **only while the `colby-maestro` plugin is enabled in
-that session**. It is not installed in `~/bin`, so a session without the plugin
-genuinely has no `maestro-task`, and that is not a broken machine.
-
-What it does NOT mean is that the session cannot be linked to a task. `bind` is
-not a Worker route — there is no `/bind` among the 214 paths, because binding is
-per-session state the plugin keeps plus a heartbeat. Without the plugin:
-
-- **to link a session to a task:** `POST /api/agents/heartbeat` with
-  `session_key` and `task_id`;
-- **to move a status or add a worklog note:** the ordinary task routes, through
-  the MCP's `execute` or over HTTP.
-
-Neither needs `maestro-task`. "I could not find the client, so the work could
-not be recorded" is never the answer.
 
 ### Tracking work is colby-maestro's job, and only colby-maestro's
 
@@ -1429,6 +1454,26 @@ nobody reads is, from the operator's side, work nobody did.
 If yes to any: **present the proposals and ask Justin to review.** Do not edit
 `~/AGENTS.md` or a template unprompted from a session about something else — say
 what you would change and why, and let him decide.
+
+**When he approves one, edit the BLOCK, not the briefing.** `~/AGENTS.md`, the
+`AGENTS-*.md` topic files and `~/.claude/CLAUDE.md` are all rendered from
+`generator/blocks/*.md` in colby-ecosystem, so the home copy and the repo copy are
+both output. The loop, and `apply` is not the whole of it:
+
+```bash
+node generator/generate.mjs apply            # renders into generator/out/, writes nothing tracked
+cp generator/out/AGENTS.md AGENTS.md         # the render over each target it changed
+node generator/generate.mjs check            # must say 11 targets aligned
+```
+
+`apply` only ever writes `generator/out/` or the system temp directory, so the gate
+stays red until you copy the render over its target — step 2 is the one that is easy
+to miss, because step 1 prints `wrote AGENTS.md` either way. The repo's
+`briefings match their blocks` gate fails on a rendered-file edit and names the stale
+target. Two sessions have now lost a build to this, the second on 2026-11-02 (PR 128)
+by doing exactly what `scripts/sync-agents` describes. One more trap: a local checkout
+whose blocks are as stale as its rendered files reports every target aligned and
+proves nothing about `main`, so render against current `main`.
 
 **`backpass` is the evidence-backed version of step 1, and it is installed.** It reads
 the sessions that actually ran on this machine and proposes edits to `~/AGENTS.md`

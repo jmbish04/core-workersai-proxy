@@ -34,40 +34,67 @@ source of truth.** Any older instruction that describes Maestro as "a local
 FastAPI/FastMCP program on this Mac" is describing the client half of a system
 that has moved.
 
-# Which door, in order
+# Which door: the MCP. Every time.
 
-**Every door reaches the Worker now. Pick the one in front of you and use it.**
-Measured 2026-10-14 on this Mac: the MCP tools, the `colby-maestro` CLI and
-`maestro-task` all write to `colby-maestro.hacolby.workers.dev`. There is no
-local SQLite lane left to fall into, and no "wrong" client to avoid.
+**Tracking state goes through the colby-maestro MCP. That is the instruction,
+not a preference, and it has been since the ecosystem started.** Tasks, status,
+claims, worklogs, plans, artifacts and feedback are MCP calls. No CLI step
+belongs in that lifecycle.
+
+**Which endpoint to call, in the order an agent walks it:
+`docs/maestro-endpoints.md` in colby-ecosystem.** It carries the lifecycle
+diagram and the 60 agent-facing paths by job. Read it rather than rediscovering
+the catalog.
 
 | Door | Goes to | Use it when |
 |---|---|---|
-| **The Worker's MCP** — `mcp__colby-maestro__search` / `execute`, the claude.ai connector | the Worker's `/mcp`. `codemode.spec().info.title` answers `Colby Maestro API`, 214 paths | **the normal path.** Code mode: `search` the spec, then `execute` with `codemode.request({ method, path, body })` |
-| **`maestro-task`** — the plugin's CLI | the Worker's REST API | binding, status and worklog from a Bash tool, when the plugin is enabled |
-| **`colby-maestro`** — `~/.local/bin/colby-maestro` | the Worker's REST API (`DEFAULT_WORKER_BASE_URL` in `shared/worker_api.py`) | the richer operator surface: briefings, assignees, model inventory |
-| **Plain HTTP** — `/openapi.json` + `Authorization: Bearer $(tokens show WORKER_API_KEY --value-only)` | the Worker | no MCP in this session, or the connector is failing |
+| **The Worker's MCP** — `mcp__colby-maestro__search` / `execute`, the claude.ai connector | the Worker's `/mcp`. `codemode.spec().info.title` answers `Colby Maestro API`, **314 paths** (measured 2026-11-01) | **always.** Code mode: `search` the spec, then `execute` with `codemode.request({ method, path, body })` |
+| **Plain HTTP** — the same paths + `Authorization: Bearer $(tokens show WORKER_API_KEY --value-only)` | the Worker | the one fallback: no code-mode server answers `Colby Maestro API`, or the connector is failing |
+| **`colby-maestro`** — `~/.local/bin/colby-maestro` | the Worker's REST API (`DEFAULT_WORKER_BASE_URL` in `shared/worker_api.py`) | the operator surface a human drives: briefings, assignees, model inventory. Not an agent's tracking door |
+| **`maestro-task`** — the plugin's CLI | the Worker's REST API, plus plugin-local state | **plugin-local jobs only**: `upload-replay`, `ding classify`. These have no Worker route. Never status, worklog or linking |
 | `colby-maestro mcp-serve` — FastMCP on `127.0.0.1:4318` | a local store, and **no client on this machine points at it** | host-local operations only (`orchestrator_*`, `cfg_*`, local models). **Never** a task, status, claim or worklog |
 
-**This table was wrong until 2026-10-14**, and it is worth knowing why. It
-listed `mcp__colby-maestro__*` as "Legacy. Never write tracking state through
-it", which had been true before Justin pointed it at the Worker. Agents read the
-warning, distrusted the correct tool, went looking for a client that was not
-installed, and reported themselves blocked. Whenever this file and the machine
-disagree, **re-measure and then fix this file** — a stale warning routes work to
-nowhere, which is worse than no warning at all.
+## Two things route agents to the CLI, and both are now fixed
+
+**The hooks used to name it.** Until 2026-11-01 four of this plugin's lifecycle
+hooks injected `maestro-task` commands into every session's context —
+`session_start.py`, `post_tool_use.py`, `stop.py` and `user_prompt_submit.py`.
+A hook string reaches the model in every session, so it outranks a briefing the
+session may never load. That, not agent drift, is why sessions kept reaching for
+a CLI while this file already said the MCP was the path. All four now name MCP
+calls, and `tests/test_session_start.py` fails if any of them names the CLI for
+tracking state again.
+
+**One subcommand is unreachable where agents actually work.** Claude Code's
+worktree fence refuses any command carrying the word the linking subcommand uses
+— it is also a shell builtin that can run a string. `~/AGENTS.md` mandates a
+worktree for every repo edit, so in the normal case that command cannot run at
+all. A session handed it has no way forward and ends up asking Justin to run one
+line, which is the handoff this setup exists to avoid.
+
+**To link a session to a task: name the task id in your next message.** The
+prompt hook reads it and links it (`source: prompt`). That works in a worktree.
+With no plugin, `POST /api/agents/heartbeat` with `session_key` and `task_id`
+does the same thing. There is no `/bind` route among the 314 paths; linking is
+per-session plugin state plus that heartbeat.
+
+**Telemetry is a different system. Do not reach for it.** Token usage,
+decisions and transcripts go to `agents.hacolby.app` — a FastAPI service on LXC
+109, reached locally or over the Cloudflare tunnel, not the Worker. The plugin's
+`TokenUsage` hook posts on Stop and SessionEnd. You never call it by hand and
+you never total anything up yourself.
 
 **The connector's name does not say "maestro"** — in the desktop app it is
 `mcp__<uuid>__search` / `__execute`. Identify it before concluding it is absent;
 the probe is in "The Worker connector is invisible to a keyword search" below.
 
-**`maestro-task` is not always installed.** It is on PATH only while the
-`colby-maestro` plugin is enabled, and there is no copy in `~/bin`. Its absence
-does not strand the session: `bind` is not a Worker route at all (there is no
-`/bind` among the 214 paths — binding is per-session plugin state plus a
-heartbeat), so without the plugin, link the session with
-`POST /api/agents/heartbeat` carrying `session_key` and `task_id`, and move
-status or add worklog notes through the ordinary task routes.
+**An earlier version of this table was wrong in the opposite direction**, and it
+is worth knowing why. It listed `mcp__colby-maestro__*` as "Legacy. Never write
+tracking state through it", which had been true before Justin pointed it at the
+Worker. Agents read the warning, distrusted the correct tool, went looking for a
+client that was not installed, and reported themselves blocked. Whenever this
+file and the machine disagree, **re-measure and then fix this file** — a stale
+warning routes work to nowhere, which is worse than no warning at all.
 
 **Discover, do not guess a path** — `search` first, then `execute`.
 ## The Worker connector is invisible to a keyword search. Probe for it.
@@ -166,8 +193,24 @@ script, `tokens show WORKER_API_KEY --value-only`, or `requireSecret`/
 `require_secret` from the scaffolded SDK (`tokens agent-onboarding`). Never
 hardcode it, never read it from a `.env`.
 
-**Measured API traps (retested 2026-09-13):**
+**Measured API traps** — the worklog pair measured 2026-11-02, the rest retested
+2026-09-13. Each carries its own date, because a single date on a growing list
+goes stale and then misdates everything under it:
 
+- **A worklog POST takes `body`, not `note` — and the wrong name is ACCEPTED.**
+  `POST /api/tasks/{id}/worklog` with `{ kind, note }` creates the entry with the
+  right kind, the right timestamp and an **empty body**. Nothing reads as a
+  failure. The error that names it, `body: Supply body or body_doc.`, fires only
+  when the text field is missing altogether, so a request holding both a valid
+  `kind` and a `note` never produces it. Measured 2026-11-02 on core-spotify:
+  three entries at `bodyLen` 0 beside a correct earlier one at 1,010 characters,
+  and all three had been reported to Justin as recorded. Send `body`, or
+  `body_doc`.
+- **`kind` is a closed enum**: `note | progress | status_change | handoff |
+  blocker | claim`. Anything else is refused outright — `kind: Invalid option:
+  expected one of …`. `decision` is the one to watch, because this chapter's own
+  guidance ("what you decided and why") reads like a kind name, and that is what
+  an agent reached for twice in one session.
 - **`limit` is ignored.** `?limit=1` returned all 177 tasks; `?status_category=-done&limit=2`
   returned 112. Slice client-side, and never assume a list you asked to cap is capped.
 - **`POST /api/tasks` requires `task_type` *and* `priority` explicitly.** Omitting
@@ -178,6 +221,18 @@ hardcode it, never read it from a `.env`.
 - *(Fixed 2026-09-13: the unscoped `GET /api/tasks` used to 500 and now returns
   200. Scoping with `project_key` is still cheaper, and `GET /api/briefing` is
   still the better call for "what am I supposed to be doing".)*
+
+**Never coalesce an API response into a success string.** The two worklog traps
+above both reached Justin as "recorded" because the call site was
+`log?.entry?.id ?? "written"`. One failure stored an empty entry and the other
+was refused outright; the `??` printed the same word over both. The API answered
+honestly every time — the fallback was written over its answer. Return the
+response and read its `status`.
+
+This is the same defect the PreToolUse script lint already rejects in Bash — a
+`curl -s` into a blind parser, `|| true` on a build, a credential captured with
+its error silenced. **The lint cannot see inside a code-mode `execute` body**, so
+in an `execute` it is yours to hold.
 
 Open findings are filed as task `0fd70cecfba2` in the `colby-maestro` project.
 
@@ -255,19 +310,59 @@ The `colby-maestro` plugin (published from colby-ecosystem, enabled in user sett
 
 Use `maestro-task` for status and worklog (`maestro-task status <id> review`, `maestro-task log <id> note "..."`), and the `maestro-worklog` skill for which kind to write. The old `maestro-session-end.py` (local-mirror sync) is retired to `~/.claude/hooks/retired/`.
 
+## Playbooks: search before you execute, write one when you solve something
+
+**Colby Maestro holds a playbook library: proven procedures for jobs that recur.**
+A briefing is read once, before the task is known; a playbook is searched when
+the question arrives. Search it before a migration, a renumber, a merge of
+several PRs, a backup, a CI failure, or anything you suspect someone already
+solved.
+
+```js
+async () => (await codemode.request({ method: "GET", path: "/api/playbooks" }))
+  .playbooks.map((p) => [p.id, p.title, p.summary])
+```
+
+`GET /api/playbooks/{id}` returns the body (`revision.body_markdown`), and
+`GET /api/tasks/{taskId}/suggested-playbooks` matches one to a task.
+
+**Measured cost of skipping it, 2026-10-21:** an integrator renumbered four
+migrations with `pnpm run db:generate`, the exact move the playbook
+`renumber-an-applied-migration` forbids. It only got away with it because the
+regenerated files came out byte-identical. Nothing in these briefings mentioned
+playbooks, so it never looked.
+
+**When you solve something that will recur, write the playbook.** In a repo that
+has `docs/playbooks/` (colby-maestro does), draft it there as markdown with front
+matter and sync it with `node scripts/seed-playbooks.mjs --apply <file>`.
+Elsewhere, `POST /api/playbooks` with `title`, `summary` and `markdown`. Name the
+trap, the measurement and the fix, not "be careful with X".
+
 ## Before you finish
 
-One curl, and it is the difference between work that is tracked and work that
-only looks tracked:
+One read, and it is the difference between work that is tracked and work that
+only looks tracked. **Read the worklog itself, and check your entry has TEXT:**
 
 ```bash
 curl -s -H "Authorization: Bearer $K" "$B/api/tasks/<task_id>" | head -c 200
+curl -s -H "Authorization: Bearer $K" "$B/api/tasks/<task_id>/worklog" \
+  | python3 -c "import json,sys
+for e in json.load(sys.stdin).get('entries', []):
+    print(e['created_at'], e['kind'], repr(e.get('author')), len(e.get('body') or ''))"
 ```
 
 Your task's status and your final worklog entry should be visible **on the
 Worker**. If they are not, fix that before you end the session — an agent that
 recorded everything faithfully into a store nobody reads has, from the operator's
 side, recorded nothing.
+
+**"The entry exists" is not the check.** It was the check as this section used to
+be written, and an empty entry passes it: a row with the right kind and the right
+timestamp and no body satisfies every word of it. Measured 2026-11-02, which is
+why the command above prints the body LENGTH — a zero there is the `note`-instead-
+of-`body` trap in the API traps section, and the fix is to re-post with `body`.
+The `author` column is what tells your own entries apart from `system` status
+changes and `github` merge notices, so count only your own.
 
 **If you notice the drift growing, do not quietly fix it.** Append what you
 measured to task `maestro-store-drift-backfill` in the `colby-maestro` project.

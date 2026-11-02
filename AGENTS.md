@@ -25,6 +25,8 @@ Work is tracked in **colby-maestro** (`https://colby-maestro.hacolby.workers.dev
 bearer `$(tokens show WORKER_API_KEY --value-only)`) — never in this repo and never
 in colby-ecosystem, which only stores config. Refresh this block with
 `.agents/ecosystem/pull-agents`.
+
+Before a step these briefings do not plainly cover — a credential, a host, a database, a deploy, a backup — search **playbooks** on colby-maestro first, on a half-remembered fragment rather than a title, and say in the worklog what you found; write one when you had to work something out that nobody had written down (`.agents/ecosystem/AGENTS.md`, "Write down what you worked out").
 <!-- END colby-ecosystem -->
 
 # AGENTS

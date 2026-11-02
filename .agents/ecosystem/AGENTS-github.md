@@ -68,6 +68,43 @@ To write the workflow file, commit it and push the branch over SSH, then open th
 PR with `gh-tools create-pr` as usual — PRs and merges do not need `workflow`
 scope.
 
+## GitHub Actions routing: 3 tiers, one `runs-on` form
+
+Every workflow job picks its runner through a repo variable and falls back to a
+GitHub-hosted runner. A failover daemon on Proxmox flips the variable when a tier
+degrades (`AGENTS-proxmox.md` → "GitHub Actions runners").
+
+| Tier | Runs on | When |
+| --- | --- | --- |
+| 1 (default) | GitHub-hosted `ubuntu-latest` | `CI_RUNNER` / `AGENTS_SYNC_RUNNER` unset or empty |
+| 2 | `github-actions-1` (lxc/135, `192.168.1.197:8791`) | variable set to `["self-hosted","Linux","X64","proxmox-actions"]` |
+| 3 | `github-actions-2` (lxc/139, `192.168.1.208:8791`) | lxc/135 overflow or down; the two hosts forward to each other |
+
+**Every job uses this form, with `ubuntu-latest` as the fallback:**
+
+```yaml
+runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+```
+
+`agents-sync.yml` uses `vars.AGENTS_SYNC_RUNNER` in the same shape.
+
+**Never hardcode `runs-on: self-hosted` or `[self-hosted, Linux, X64, proxmox-actions]`.**
+A hardcoded label traps the repo on the Proxmox runners while Tier 1 is the live
+default, and it queues forever in a repo with no runner (a queued job is invisible;
+a failed one is not).
+
+This is enforced, not just written down:
+
+| Guard | Where | What it does |
+| --- | --- | --- |
+| `scripts/runner-guard` | every repo (shipped by `pull-agents`) | `check FILE...` / `check --staged`; exit 1 on a hardcoded self-hosted `runs-on` |
+| git `pre-commit` | installed by `pull-agents install-hooks` | runs `runner-guard check --staged` over staged workflows; chains any hook already there |
+| Claude Code `PreToolUse` | `claude/settings.json` | blocks `Write` / `Edit` / `MultiEdit` on `.github/workflows/*.y*ml` (and `templates/*.yml`) with the fix; also blocks the Bash commands that bring persistent runner services back |
+
+The guard reads the **staged blob**, not the working tree, and ignores comments.
+Test: `scripts/test-runner-guard` (29 assertions, each shown to fail when the guard
+is broken on purpose). Bypass a commit only with Justin's OK: `git commit --no-verify`.
+
 ## The toolkit
 
 It is PyGithub-first and **deliberately does not depend on the `gh` CLI** for PR
