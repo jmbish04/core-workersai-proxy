@@ -908,6 +908,14 @@ Facts that will waste your time otherwise (all measured 2026-09-10):
 6. **The logs endpoint's `cursor` is a tail cursor** — replaying it returns zero
    lines. Loop only while `truncated` is set *and* the page produced lines, or a
    finished build spins forever.
+7. **A red PR check can be the account, not the code.** Measured 2026-10-21:
+   every PR build passed its build phase (`[build] Complete!`) and then failed
+   the preview deploy with `reached its limit of 500 Durable Object namespaces.
+   78 of them are owned by Previews ... [code: 10067]`. Each pushed branch keeps
+   a preview, and colby-maestro alone held 205. Read the build log before
+   debugging your diff, then delete previews whose branch has no open PR:
+   `DELETE /accounts/{id}/workers/workers/{worker}/previews/{preview_id}`.
+   Procedure: Maestro playbook `preview-deploy-fails-10067`.
 
 Useful raw endpoints: `POST /builds/triggers/{uuid}/builds` (manual build, body
 `{"branch":"main"}`), `PUT /builds/builds/{uuid}/cancel`,

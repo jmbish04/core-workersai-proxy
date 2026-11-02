@@ -109,4 +109,17 @@ and required secrets for your language. The Python client is already written:
 `python/utils/ai.py`. `~/.colby-ecosystem/workers/utils/ai.ts` is the HTTPS client
 — from a Worker, use the template's `src/backend/ai/guardian/` instead.
 
+### Searching what you embedded: check the index against an exact scan
+
+An approximate vector index can return the wrong neighbours while every check
+stays green. Measured 2026-10-21 on colby-maestro's pgvector `diskann` index,
+right after a backfill of 4,162 vectors: every query returned the same unrelated
+rows at about 0.6, while an exact scan of the same table found the right row at
+0.919. Tests ran on a handful of rows, where an approximate index is exact.
+
+After any large embedding backfill, run one query twice: through the index, and
+with `SET enable_indexscan=off`. If they differ, rebuild the index
+(`REINDEX INDEX CONCURRENTLY ...`). Procedure: Maestro playbook
+`vector-search-returns-wrong-neighbours`.
+
 ---
