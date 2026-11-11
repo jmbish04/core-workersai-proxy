@@ -8,13 +8,18 @@
     scripts/runner-guard hook               Claude Code PreToolUse hook: JSON on stdin, exit 2 blocks
 
 THE RULE (AGENTS-github.md -> "GitHub Actions routing"). Every job reads its runner from a
-repo variable and falls back to a GitHub-hosted one:
+repo variable and falls back to a GitHub-hosted one, in the bracket-checked form:
 
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(vars.CI_RUNNER, '[') && endsWith(vars.CI_RUNNER, ']') && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
 
 agents-sync.yml uses vars.AGENTS_SYNC_RUNNER the same way. A literal `self-hosted` or
 `proxmox-actions` in runs-on traps the repo on the Proxmox runners even while Tier 1
 (ubuntu-latest) is the live default, and queues forever in a repo with no runner.
+
+The older unchecked form, `${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}`,
+is still accepted here so this guard does not fail repos that have not been swept. Do not
+write a new one: it throws on CI_RUNNER=self-hosted and queues forever on a non-array JSON
+value. See the comment above GOOD.
 
 THE BASH BAN (AGENTS-proxmox.md -> "Persistent runner services are banned"). Persistent
 `actions.runner.*.service` units on lxc/135 and lxc/139 put 137 idle .NET Runner.Listener
@@ -31,18 +36,66 @@ import subprocess
 import sys
 
 VARS = ("CI_RUNNER", "AGENTS_SYNC_RUNNER")
+
+# TWO router forms are recognised, and the FIRST is the one to write.
+#
+#   bracket-checked (MANDATED, AGENTS-github.md -> "GitHub Actions routing")
+#       ${{ startsWith(vars.X, '[') && endsWith(vars.X, ']') && fromJSON(vars.X) || 'ubuntu-latest' }}
+#   unchecked (LEGACY, still accepted so this guard does not fail older repos)
+#       ${{ vars.X && fromJSON(vars.X) || 'ubuntu-latest' }}
+#
+# Why the brackets matter, and why the legacy form is not merely a style choice: the
+# unchecked form is safe only while the variable holds a JSON array or an empty string.
+# `CI_RUNNER=self-hosted` makes a bare fromJSON THROW, and `CI_RUNNER={"a":1}` makes
+# runs-on the label `Object`, so the job QUEUES FOREVER against a label no runner carries
+# - a gate that reports nothing, which is worse than one that goes red. The variable is
+# written by gh-actions-failover-router, not by hand, so a malformed write arrives during
+# a Tier 1 outage: the one moment CI has to work.
+#
+# This guard previously knew only the legacy form, and its own docstring and FIX text told
+# developers to write it. Measured 2026-11-08 on colby-maestro: 5 of 6 workflow files
+# carried the legacy shape while AGENTS-github.md mandated the bracket-checked one. The
+# written rule and the shipped enforcement disagreed, and the shipped one wins in practice.
+_VAR_ALT = "|".join(VARS)
 GOOD = re.compile(
-    r"^\$\{\{\s*vars\.(%s)\s*&&\s*fromJSON\(\s*vars\.\1\s*\)\s*\|\|\s*'ubuntu-latest'\s*\}\}$"
-    % "|".join(VARS)
+    r"^\$\{\{\s*(?:"
+    # bracket-checked, mandated
+    r"startsWith\(\s*vars\.(%s)\s*,\s*'\['\s*\)\s*&&\s*endsWith\(\s*vars\.\1\s*,\s*'\]'\s*\)"
+    r"\s*&&\s*fromJSON\(\s*vars\.\1\s*\)"
+    r"|"
+    # unchecked, legacy
+    r"vars\.(%s)\s*&&\s*fromJSON\(\s*vars\.\2\s*\)"
+    r")\s*\|\|\s*'ubuntu-latest'\s*\}\}$" % (_VAR_ALT, _VAR_ALT)
 )
 BAD_LABEL = re.compile(r"self-hosted|proxmox-actions", re.I)
 WORKFLOW = re.compile(r"(^|/)(\.github/workflows|templates)/[^/]+\.ya?ml$")
 RUNS_ON = re.compile(r"^(\s*)(?:-\s+)?runs-on:\s*(.*)$")
 
+
+def _bracket(var, fallback="ubuntu-latest", json_var=None):
+    """The mandated runs-on value, as a string, for the self-check to assert GOOD against."""
+    return (
+        "${{ startsWith(vars.%s, '[') && endsWith(vars.%s, ']') && fromJSON(vars.%s) || '%s' }}"
+        % (var, var, json_var or var, fallback)
+    )
+
+
+BRACKET_VALUE = _bracket("CI_RUNNER")
+BRACKET_SYNC_VALUE = _bracket("AGENTS_SYNC_RUNNER")
+LEGACY_VALUE = "${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}"
+# Brackets present, but fromJSON reads a DIFFERENT variable than the one tested.
+MISMATCHED_VALUE = _bracket("CI_RUNNER", json_var="AGENTS_SYNC_RUNNER")
+# Brackets present, but Tier 1 is not the fallback, so the routing is still wrong.
+SELF_HOSTED_FALLBACK_VALUE = _bracket("CI_RUNNER", fallback="self-hosted")
+
 FIX = """\
 Use the failover-router form (Tier 1 = ubuntu-latest unless the repo variable says otherwise):
 
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(vars.CI_RUNNER, '[') && endsWith(vars.CI_RUNNER, ']') && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+
+The brackets are tested BEFORE fromJSON is reached, and that is the point: CI_RUNNER=self-hosted
+makes a bare fromJSON throw, and CI_RUNNER={"a":1} makes runs-on the label `Object`, which
+queues forever against a label no runner carries.
 
 (agents-sync.yml: vars.AGENTS_SYNC_RUNNER.) Set the variable to
 ["self-hosted","Linux","X64","proxmox-actions"] to fail over; clear it to return to Tier 1.
@@ -179,14 +232,35 @@ def read_staged(path):  # the staged blob, not the working tree: that is what ge
 def self_check():
     bad = "jobs:\n  a:\n    runs-on: [self-hosted, Linux, X64, proxmox-actions]\n"
     good = "jobs:\n  a:\n    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}\n"
+    bracket = "jobs:\n  a:\n    runs-on: " + BRACKET_VALUE + "\n"
     cases = [
         ("flow list", violations(bad), True),
         ("scalar", violations("    runs-on: self-hosted\n"), True),
         ("block list", violations("    runs-on:\n      - self-hosted\n      - linux\n"), True),
         ("labels map", violations("    runs-on:\n      labels: proxmox-actions\n"), True),
         ("router fallback to self-hosted", violations("    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'self-hosted' }}\n"), True),
-        ("router form", violations(good), False),
-        ("sync router form", violations("runs-on: ${{ vars.AGENTS_SYNC_RUNNER && fromJSON(vars.AGENTS_SYNC_RUNNER) || 'ubuntu-latest' }}\n"), False),
+        ("router form (legacy, still accepted)", violations(good), False),
+        ("sync router form (legacy)", violations("runs-on: ${{ vars.AGENTS_SYNC_RUNNER && fromJSON(vars.AGENTS_SYNC_RUNNER) || 'ubuntu-latest' }}\n"), False),
+        ("bracket-checked form", violations(bracket), False),
+
+        # GOOD is asserted DIRECTLY here, not through violations(), and that distinction
+        # is the whole reason these five exist. violations() only ever reports a value
+        # that BAD_LABEL matches, so a bracket-checked form with an `ubuntu-latest`
+        # fallback comes back clean whether GOOD recognises it or not. Four cases written
+        # through violations() passed with the bracket branch of GOOD deliberately broken
+        # - pre-satisfied fixtures, testing nothing. These fail when that branch breaks.
+        ("GOOD accepts the mandated bracket-checked form", GOOD.match(BRACKET_VALUE), True),
+        ("GOOD accepts the bracket-checked sync form", GOOD.match(BRACKET_SYNC_VALUE), True),
+        ("GOOD still accepts the legacy form", GOOD.match(LEGACY_VALUE), True),
+        # The backreference must refuse a bracket test on one variable and a fromJSON on
+        # another, or a copy-paste across two variables reads as correct.
+        ("GOOD refuses mismatched variables", GOOD.match(MISMATCHED_VALUE), False),
+        ("GOOD refuses a self-hosted fallback", GOOD.match(SELF_HOSTED_FALLBACK_VALUE), False),
+
+        # And the same mismatch end to end: GOOD declines it, so BAD_LABEL gets to see
+        # the self-hosted fallback and report it.
+        ("bracket-checked but falls back to self-hosted", violations(
+            "    runs-on: " + SELF_HOSTED_FALLBACK_VALUE + "\n"), True),
         ("comment mentioning self-hosted", violations("# runs-on: self-hosted is banned\n    runs-on: ubuntu-latest  # not self-hosted\n"), False),
         ("matrix", violations("    runs-on: ${{ matrix.os }}\n"), False),
         ("svc enable", bash_violation("ssh Proxmox 'systemctl enable --now actions.runner.foo.bar.service'"), True),

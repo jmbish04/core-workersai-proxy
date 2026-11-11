@@ -250,10 +250,26 @@ scripts_for_repo() {              # -> one script name per line
   # is language-agnostic.
   printf 'gh.mjs\nrun.sh\nrunner-guard\n'
   case $'\n'"$(selected_files)"$'\n' in
-    *$'\n'AGENTS-cloudflare-workers.md$'\n'*) printf 'fix-d1-migrations.mjs\n' ;;
+    *$'\n'AGENTS-cloudflare-workers.md$'\n'*)
+      printf 'fix-d1-migrations.mjs\n'
+      # check-d1-not-inherited.mjs follows wrangler.jsonc for the same reason the D1
+      # fixer does: only a Worker repo has a d1_databases block to get wrong. It was
+      # hand-copied into four repos first (2026-11-02), which is how four copies of
+      # one denylist start to disagree about which uuid is core-guardian's.
+      printf 'check-d1-not-inherited.mjs\n'
+      ;;
   esac
   case $'\n'"$(selected_files)"$'\n' in
     *$'\n'AGENTS-frontend.md$'\n'*) printf 'reui.mjs\nui-guard.mjs\n' ;;
+  esac
+  # ai-guard goes with the AI chapter, because the chapter's rule -- every inference
+  # goes through core-guardian -- is the one nothing was checking. Measured 2026-11-02:
+  # the router saw 0.0% of the account's Workers AI neurons for a whole billing cycle,
+  # 94 of 272 wrangler configs declared a top-level `ai` binding, and 47 repos called
+  # env.AI.run directly. A rule in a briefing that nothing scans for is a rule that
+  # only holds where somebody happened to read it.
+  case $'\n'"$(selected_files)"$'\n' in
+    *$'\n'AGENTS-ai.md$'\n'*) printf 'ai-guard.mjs\n' ;;
   esac
 }
 
@@ -277,6 +293,21 @@ sync_scripts() {                  # sync_scripts <force> -> writes MANAGED-able 
     mv "$tmp" "$dest"; chmod 755 "$dest"
     printf '%s\n' "$dest"
   done < <(scripts_for_repo)
+
+  # A vendored guard that nothing invokes is a scanner that prints nothing: 41 repos
+  # vendored ui-guard.mjs and 10 ran it. This sync does not edit package.json -- the
+  # scripts that need gating are named differently in every repo, and rewriting a
+  # repo's own manifest is a bigger power than refreshing a briefing. So say, by name,
+  # that the deploy gate is still missing. The check itself still RUNS on every PR,
+  # from the agents-sync workflow's own step.
+  if [ -f "$SCRIPTS_DIR/check-d1-not-inherited.mjs" ] && [ -f package.json ]; then
+    if ! grep -qF 'check-d1-not-inherited.mjs' package.json; then
+      note "scripts/check-d1-not-inherited.mjs is installed but no package.json script invokes it." >&2
+      note "  agents-sync runs it on every PR; a deploy from a laptop is still ungated. Add:" >&2
+      note '    "check:d1": "node scripts/check-d1-not-inherited.mjs",' >&2
+      note "  and prefix deploy / deploy:preview / migrate:remote with it." >&2
+    fi
+  fi
 
   # tokens.mjs is NOT vendored here. Its one source is ~/bin/tokens_cli/sdk/tokens.mjs,
   # and a copy in this repo would be a second copy to keep in step — which AGENTS.md

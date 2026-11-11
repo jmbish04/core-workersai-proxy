@@ -310,6 +310,52 @@ The `colby-maestro` plugin (published from colby-ecosystem, enabled in user sett
 
 Use `maestro-task` for status and worklog (`maestro-task status <id> review`, `maestro-task log <id> note "..."`), and the `maestro-worklog` skill for which kind to write. The old `maestro-session-end.py` (local-mirror sync) is retired to `~/.claude/hooks/retired/`.
 
+## Out of token budget: Justin can approve a raise in chat, and you carry it out
+
+At 100% of a task's budget the gate denies nearly every tool. Your exit is to
+estimate what finishing costs and file the landing proposal - and then, since
+2026-11-02, to act on his answer rather than hand him the write.
+
+**Report the overage, give him the estimate, and tell him what to type.** A local
+hook cannot see him approve anything, so his prompt is where the approval is
+read, anchored at its start:
+
+| He types | Means |
+|---|---|
+| `approve budget +400k` | approved, 400,000 tokens |
+| `approve budget` · `budget ok` | approved, no amount - no ceiling enforced |
+| `extend the budget by 600k` · `top up budget +80k` · `raise my budget +2M` | the same |
+
+The gate then allows exactly two writes, through the colby-maestro MCP:
+`POST /api/budgets/landings/<id>/decide` with `decision: "extend_budget"`, and
+`POST /api/budgets` with `change_kind: "top_up"` (its `max_tokens` is the amount
+to ADD, and it carries the `updated_estimate` that backs it). **Take the decide
+call from the message rather than writing it yourself:** its body depends on the
+landing's state, and the Worker refuses the wrong one - a landing with no proposal
+yet needs `remaining_estimate_tokens` as well, and one already proposed refuses
+it. The gate reads the status from the verdict and emits the form that works. It is scoped to
+that task, lasts 30 minutes, covers three attempts, and every
+`extension_tokens` / `max_tokens` in the call must be within the figure he named.
+
+**Three things this does not do.** It does not let you raise a budget he has not
+approved in that message - ask, never assume. It does not widen anything else:
+not an edit, not a shell, not an MCP tool that merely carries the path in its
+input. And it does not change the Worker's own rules, so an approved top-up can
+still be refused 409 `over_allocates_parent` (the parent is out of tokens; only
+he can top THAT up) or because he locked the scope from the console.
+
+**Not in a Claude Code session?** Codex, Jules and bare scripts have no prompt
+for the hook to read, so whoever hears him relays it:
+`maestro-budget approve --task <id> --tokens 400000`, then
+`maestro-budget raise --task <id>` carries it out (it decides an open landing or
+tops the budget up, and refuses without a live approval). Same store, same TTL,
+same ceiling.
+
+`Read` and `ToolSearch` are the two tools always allowed while exhausted - the
+second because the MCP tool the deny message names is deferred in the desktop
+app, so without it the door has no handle. Full rules:
+`plugins/colby-maestro/README.md` → "Justin approves a raise".
+
 ## Playbooks: search before you execute, write one when you solve something
 
 **Colby Maestro holds a playbook library: proven procedures for jobs that recur.**

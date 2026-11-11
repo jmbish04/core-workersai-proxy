@@ -123,3 +123,53 @@ with `SET enable_indexscan=off`. If they differ, rebuild the index
 `vector-search-returns-wrong-neighbours`.
 
 ---
+### The rule above is now scanned for, not trusted: `scripts/ai-guard.mjs`
+
+**Every rule in this file held only where somebody happened to read it, and the
+measurement says that was nowhere.** On 2026-11-02, for the whole 2026-10-19
+billing cycle, core-guardian's AI router saw **0.0%** of the paid account's
+Workers AI neurons. All 40,547 of them went around the governor. So the armed
+monthly spend cap could not see them, the circuit breakers could not stop them,
+and Cloudflare's own analytics break neurons down by **model, not by Worker** —
+nobody could even say which project spent them.
+
+The cause was countable. **94 of 272** wrangler configs on this machine declared
+a top-level `ai` binding, which is a direct, unmetered line to Workers AI.
+
+So the AI chapter now ships a scanner, the way the frontend chapter ships
+`ui-guard.mjs`. The briefing sync drops `scripts/ai-guard.mjs` into every repo
+that gets this file.
+
+| Rule | What it catches |
+|---|---|
+| `ai-binding` | a wrangler config with a top-level `ai` binding |
+| `direct-ai-call` | `env.AI.run` / `.models` / `.toMarkdown` / `.autorag` |
+| `provider-sdk` | importing an OpenAI, Anthropic, Google, Mistral or Cohere SDK |
+| `provider-fetch` | fetching a provider base URL directly |
+| `allow-reason` | an `ai-guard-allow` with no reason, or naming no real rule |
+
+```bash
+node scripts/ai-guard.mjs .                   # the scan
+node scripts/ai-guard.mjs . --self-check      # prove its own checks can fail
+node scripts/ai-guard.mjs . --update-baseline # re-record after a burn-down
+```
+
+**It is a ratchet, not a cliff**, because 47 repos violate it today and a guard
+that fails all of them on arrival is a guard somebody disables. `.ai-guard.json`
+records the per-file counts a repo already has. A new violating file fails. More
+call sites in a known file fails. Fewer passes, and says so. `--update-baseline`
+**refuses to raise a count** without `--force`: a baseline that can go up is not
+a ratchet.
+
+Two exemptions, both explicit. `core-guardian` itself sets
+`"allowAiBinding": true` — it is the governor, so it is the one Worker that may
+hold the binding. A single line takes
+`// ai-guard-allow direct-ai-call: <why>`, and the reason is required.
+
+**Count calls, not mentions.** Writing this guard corrected a number in this
+file's own first draft. A grep for `env\.AI\.run` reported 153 call sites in
+core-remodel; 5 of those "sites" were prose — a comment reading
+`` ~130 `env.AI.run` sites stay untouched ``, a changelog string, and a
+health-check remediation message. The guard requires the opening paren, and
+measured **74** real calls in 45 files. One search form is not a search, and a
+pattern without the paren is not a call site.
