@@ -64,16 +64,33 @@ jobs:
     #   ["self-hosted","Linux","X64","proxmox-actions"]
     #                          -> this repo's own pve-135-<repo> runner
     #
-    # `gh-tools agents-sync` / `agents-rollout` is the only writer: it sets the variable
-    # where an ONLINE runner exists and DELETES it otherwise, so a repo that loses its
-    # runner falls back to hosted instead of sitting queued. The value is machine-generated JSON.
-    # A hand-mangled value makes fromJSON throw, which fails the job immediately — loud and
-    # visible, which is the failure mode we want over an invisible queue.
+    # GitHub's cloud runners are the DEFAULT, whatever the variable holds (Justin,
+    # 2026-11-02: the hosted budget is raised, and the Proxmox boxes are for when hosted
+    # fails). Only one value sends a job to Proxmox: a JSON array of that repo's runner
+    # labels. Unset, empty, or anything that is not an array -> `ubuntu-latest`.
+    #
+    # That is why the brackets are checked before `fromJSON` is reached. The expression used
+    # to be `vars.AGENTS_SYNC_RUNNER && fromJSON(...)`, which throws on a hand-mangled value
+    # and fails the job. Failing loudly was a deliberate choice over an invisible queue, and
+    # it is still the wrong one here: a garbled variable is not a request to leave the
+    # default, so it should land on hosted rather than take the repo's CI down.
     #
     # Measured against GitHub's own expression engine (@actions/expressions 0.3.61):
-    # unset -> "ubuntu-latest", empty -> "ubuntu-latest", valid array -> the four labels,
-    # malformed -> throws. `&&` short-circuits (evaluator.js visitLogical breaks on a falsy
-    # left operand), so fromJSON is never reached when the variable is unset.
+    # unset -> "ubuntu-latest", empty -> "ubuntu-latest", `self-hosted` (bare, no brackets)
+    # -> "ubuntu-latest", valid array -> the four labels. `&&` short-circuits (evaluator.js
+    # visitLogical breaks on a falsy left operand), so fromJSON is never reached unless the
+    # value both starts with `[` and ends with `]`.
+    #
+    # One case the brackets cannot catch: a value shaped like an array whose contents are not
+    # valid JSON (`[oops]`) still throws. Expression syntax has no way to validate JSON, so
+    # this narrows the failure from "any non-JSON string" to "a malformed array", and no
+    # further.
+    #
+    # `gh-tools agents-sync` / `agents-rollout` writes this variable where an ONLINE runner
+    # exists and deletes it otherwise. Under the policy above that writer is itself in
+    # question — pinning belongs to the failover router, not to a briefing refresh — and the
+    # expression here is deliberately safe either way: it honours a pin that is really there
+    # and ignores everything else.
     #
     # DO NOT replace this with the fork guard from test.yml:
     #   ${{ github.event.pull_request.head.repo.full_name && … || fromJSON('[…]') }}
@@ -84,7 +101,7 @@ jobs:
     # A PR from a fork gets no secrets and a read-only token: it can neither pull the
     # briefings nor push to the fork's branch. Skip it rather than fail it red.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ${{ vars.AGENTS_SYNC_RUNNER && fromJSON(vars.AGENTS_SYNC_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ startsWith(vars.AGENTS_SYNC_RUNNER, '[') && endsWith(vars.AGENTS_SYNC_RUNNER, ']') && fromJSON(vars.AGENTS_SYNC_RUNNER) || 'ubuntu-latest' }}
     steps:
       # A branch name, not the bare SHA: a detached HEAD cannot push. On a pull request
       # that is head_ref (the PR branch); ref_name there is "<n>/merge", which cannot push.
@@ -158,3 +175,39 @@ jobs:
           git commit -m "chore(agents): sync right-sized briefings from colby-ecosystem"
           # One retry: the branch may have moved while this ran.
           git push || { git pull --rebase -q && git push; }
+
+      # The D1 guard runs HERE, not only from package.json. pull-agents ships
+      # scripts/check-d1-not-inherited.mjs into every Worker repo, and a vendored script
+      # that nothing invokes is a scanner that prints nothing -- 41 repos vendored
+      # ui-guard.mjs and 10 ran it. Wiring it into each repo's package.json would mean
+      # this sync rewriting a repo's own manifest, where the script names differ in every
+      # repo; running it here costs one step and covers every repo on every PR.
+      #
+      # It runs AFTER the commit on purpose: a D1 problem must not also stop this repo
+      # getting its refreshed briefings, which are unrelated to it.
+      #
+      # It fails the job on purpose. A PR that binds another project's D1 database --
+      # core-guardian's production spend governor, which 13 default branches carried on
+      # 2026-11-02 -- should go red before anyone merges it.
+      #
+      # Only Worker repos have the file, so a Python repo skips by declaration: the step
+      # says which case it took. node is NOT optional where the file exists; every Worker
+      # repo here is a Node repo, and treating a missing node as a pass is how the guard
+      # would quietly stop reporting.
+      - name: Check this repo's D1 binding is its own
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/check-d1-not-inherited.mjs ]; then
+            echo "no scripts/check-d1-not-inherited.mjs — not a Worker repo, nothing to check"
+            exit 0
+          fi
+          command -v node >/dev/null 2>&1 || {
+            echo "scripts/check-d1-not-inherited.mjs is here but node is not on this runner," >&2
+            echo "so the D1 binding was NOT checked. Install node on the runner." >&2
+            exit 1
+          }
+          # The real check first, so a repo with a foreign binding gets the refusal that
+          # names the uuid rather than a self-check assertion about it. --self-check runs
+          # second and proves the rules can still fail after the sync moved the file.
+          node scripts/check-d1-not-inherited.mjs
+          node scripts/check-d1-not-inherited.mjs --self-check
